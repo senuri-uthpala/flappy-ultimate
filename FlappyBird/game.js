@@ -1,15 +1,10 @@
-// =====================================================================
-//  FLAPPY ULTIMATE  –  single file (constants + game)
-//  NOTE: මේක තනි file එකක්. පරණ constants file එක තියෙනවා නම් ඒකේ <script> එක අයින් කරන්න.
-// =====================================================================
 
-// Error එකක් ආවොත් loading screen එකේ පෙන්නනවා (debug කරන්න ලේසියි)
 window.addEventListener('error', (e) => {
     const l = document.getElementById('loading');
     if (l) { l.classList.remove('hide'); l.style.whiteSpace = 'pre-wrap'; l.textContent = 'ERROR: ' + e.message + '\n(line ' + e.lineno + ')'; }
 });
 
-// මුළු file එකම IIFE එකක් ඇතුලේ – වෙන files වල same නම් තියෙන consts එක්ක conflict වෙන්නේ නෑ
+
 (() => {
 
 // ============ DIFFICULTY ============
@@ -95,7 +90,7 @@ const THEMES = {
     night: { skyTop: '#0f0f23', skyBottom: '#1a1a3e', ground: '#2c1810', groundDark: '#1a0f0a', cloud: 'rgba(108, 92, 231, 0.3)', star: '#fff' }
 };
 
-// ============ GAME MODES ============  (FIX: කලින් දෙපාරක් declare කරලා තිබුණා)
+// ============ GAME MODES ============  
 const GAME_MODES = {
     CLASSIC: { name: 'Classic', icon: '🎯', color: '#3498db', desc: 'Endless survival' },
     TIME_ATTACK: { name: 'Time Attack', icon: '⏰', color: '#e74c3c', desc: '60s max score', duration: 3600 },
@@ -110,9 +105,8 @@ const EVENTS = {
     current: { name: 'Coin Frenzy', icon: '🪙', desc: 'Collect 30 coins in one run', target: 30, type: 'coins', reward: 100, color: '#ffd700' }
 };
 
-// =====================================================================
-//  GAME
-// =====================================================================
+
+
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
@@ -201,7 +195,7 @@ const MAX_POWERUPS = 15;
 const MAX_PIPES = 15;
 
 // ============ ABILITY EFFECTS ============
-// FIX: හැම frame එකකම අලුත් object හදන්නේ නෑ (cache)
+
 let modsCache = { id: null, mods: null };
 function getAbilityModifiers() {
     const skin = getCurrentSkin();
@@ -231,7 +225,7 @@ function getAbilityModifiers() {
 }
 
 // ============ SOUND ============
-// FIX: AudioContext lazy create
+
 let audioCtx = null;
 function getAudio() {
     if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -399,7 +393,7 @@ document.addEventListener('keydown', (e) => {
         else if (currentState === STATE.PAUSED) { currentState = STATE.PLAYING; sfxClick(); }
     }
 });
-// FIX: GAME_OVER / TUTORIAL එකේ mouse/touch එකෙන් auto-restart වෙන්නේ නෑ (buttons වැඩ කරනවා)
+// FIX: GAME_OVER 
 canvas.addEventListener('mousedown', () => {
     if (currentState === STATE.PLAYING) flap();
 });
@@ -517,7 +511,7 @@ function drawButton(x, y, w, h, text, color = '#667eea', small = false) {
 }
 
 // ============ BACKGROUND ============
-// (FIX: මේ functions ඔයාගේ file එකේ නැතිව තිබුණා)
+
 let bgCache = { key: '', grad: null };
 function getBgGradient(theme, level) {
     const key = currentTheme + '|' + level.bg + '|' + canvas.height;
@@ -897,7 +891,6 @@ function checkCollision() {
         if (bird.x + hw > pipe.x && bird.x - hw < pipe.x + 60) {
             if (bird.y - hh < pipe.topHeight || bird.y + hh > pipe.topHeight + gap) {
                 if (currentMode === 'ZEN') continue;
-                // Phantom: pipe එකකට සැරයක් විතරයි chance roll කරන්නේ
                 if (pipe.phase === undefined) pipe.phase = Math.random() < mods.phaseChance;
                 if (pipe.phase) continue;
                 if (activePowerups.shield) {
@@ -992,7 +985,7 @@ function update() {
             if (score > saveData.bestScore) saveData.bestScore = score;
             checkLevelUp();
 
-            // Boss: pipe එකක් පහු කරන හැම වතාවකම boss ට 1 damage
+            // Boss:
             if (boss) {
                 boss.hp--;
                 sfxBossHit();
@@ -1204,7 +1197,7 @@ function drawHUD() {
 }
 
 // ============ MENU ============
-// Mouse position (hover effect එකට)
+// Mouse position 
 let mouse = { x: -1, y: -1 };
 canvas.addEventListener('mousemove', (e) => {
     const rect = canvas.getBoundingClientRect();
@@ -1544,7 +1537,6 @@ function drawDifficultySelect() {
 }
 
 // ============ SKINS ============
-// FIX: කලින් slice(0, 8) නිසා Phantom සහ Legendary skins equip කරන්න බැරි වුණා. දැන් 10ම පේනවා.
 function drawSkins() {
     ctx.fillStyle = 'rgba(0,0,0,0.85)'; ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.fillStyle = '#ffd700'; ctx.font = 'bold 24px Poppins'; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
@@ -1653,7 +1645,6 @@ function drawShop() {
 }
 
 // ============ ACHIEVEMENTS ============
-// FIX: 14 achievements screen එකට ඇතුල් වුණේ නෑ (අන්තිම ඒවා කැපිලා). දැන් auto-fit.
 function drawAchievements() {
     ctx.fillStyle = 'rgba(0,0,0,0.85)'; ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.fillStyle = '#ffd700'; ctx.font = 'bold 24px Poppins'; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
@@ -1850,7 +1841,6 @@ function drawLeaderboard() {
 }
 
 // ============ TUTORIAL ============
-// FIX: `const y` දෙපාරක් declare කරලා, ctx.fillText positions අවුල් වෙලා තිබුණා. අලුතින් ලිව්වා.
 function drawTutorial() {
     ctx.fillStyle = 'rgba(0,0,0,0.9)'; ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.fillStyle = '#ffd700'; ctx.font = 'bold 30px Poppins'; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
@@ -2056,7 +2046,6 @@ function handleButton(btn) {
 }
 
 // ============ MAIN LOOP ============
-// FIX: පරණ limiter එක 60Hz screen එකේ frame skip කරලා stutter කළා → accumulator එකක් පාවිච්චි කරනවා.
 let lastTs = 0, acc = 0;
 const FRAME_INTERVAL = 1000 / 60;
 let fpsFrameCount = 0;
@@ -2133,7 +2122,7 @@ function gameLoop(ts = 0) {
             break;
     }
 
-    // Menu/Shop/Skins වල floating text ("UNLOCKED!" වගේ) update + draw
+    
     if (currentState !== STATE.PLAYING) {
         updateParticles();
         updateFloatingTexts();
