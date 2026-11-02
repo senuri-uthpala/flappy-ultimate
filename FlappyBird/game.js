@@ -1,4 +1,3 @@
-
 window.addEventListener('error', (e) => {
     const l = document.getElementById('loading');
     if (l) { l.classList.remove('hide'); l.style.whiteSpace = 'pre-wrap'; l.textContent = 'ERROR: ' + e.message + '\n(line ' + e.lineno + ')'; }
@@ -511,29 +510,116 @@ function drawButton(x, y, w, h, text, color = '#667eea', small = false) {
 }
 
 // ============ BACKGROUND ============
+// Sky / skyline / ground static නිසා offscreen canvas වල cache කරනවා (frame එකට drawImage විතරයි)
+const GROUND_H = 30;
 
-let bgCache = { key: '', grad: null };
-function getBgGradient(theme, level) {
-    const key = currentTheme + '|' + level.bg + '|' + canvas.height;
-    if (bgCache.key !== key) {
-        const g = ctx.createLinearGradient(0, 0, 0, canvas.height);
-        if (currentTheme === 'day') {
-            g.addColorStop(0, theme.skyTop);
-            g.addColorStop(0.6, theme.skyBottom);
-            g.addColorStop(1, level.bg);
-        } else {
-            g.addColorStop(0, theme.skyTop);
-            g.addColorStop(1, theme.skyBottom);
-        }
-        bgCache = { key, grad: g };
-    }
-    return bgCache.grad;
+function makeLayer(w, h) {
+    const c = document.createElement('canvas');
+    c.width = w; c.height = h;
+    return c;
 }
+function seededRand(seed) {
+    let s = seed;
+    return () => { s = (s * 16807) % 2147483647; return (s - 1) / 2147483646; };
+}
+
+function drawGroundStrip(g, W, topY, H, night) {
+    const dirt = night ? '#3a2416' : '#c98a3c';
+    const dirtDark = night ? '#2a190e' : '#a86b27';
+    const grass = night ? '#1f6b2a' : '#74d93c';
+    const grassDark = night ? '#0f3d17' : '#2e8f1a';
+    const grassLight = night ? '#2f8a3a' : '#a6f26a';
+    g.fillStyle = dirt;
+    g.fillRect(0, topY, W, H - topY);
+    g.fillStyle = dirtDark;
+    for (let row = 0, y = topY + 20; y < H; y += 11, row++) {
+        for (let x = (row % 2) * 12; x < W; x += 24) g.fillRect(x, y, 9, 4);
+    }
+    g.fillStyle = grassDark;
+    g.fillRect(0, topY - 2, W, 11);
+    for (let x = 0; x < W + 14; x += 14) { g.beginPath(); g.arc(x, topY + 8, 8.5, 0, Math.PI); g.fill(); }
+    g.fillStyle = grass;
+    g.fillRect(0, topY, W, 8);
+    for (let x = 0; x < W + 14; x += 14) { g.beginPath(); g.arc(x, topY + 8, 7, 0, Math.PI); g.fill(); }
+    g.fillStyle = grassLight;
+    g.fillRect(0, topY, W, 2);
+}
+
+function drawSkyline(g, W, baseY, night) {
+    const rnd = seededRand(11);
+    const layers = night
+        ? [{ col: '#1a2050', top: 150 }, { col: '#10163d', top: 105 }]
+        : [{ col: 'rgba(130,196,238,0.6)', top: 150 }, { col: 'rgba(92,164,224,0.6)', top: 105 }];
+    layers.forEach((L, li) => {
+        let x = -8 - li * 11;
+        while (x < W) {
+            const w = 24 + rnd() * 22;
+            const h = 30 + rnd() * (L.top - 30);
+            g.fillStyle = L.col;
+            g.fillRect(x, baseY - h, w, h + 2);
+            if (li === 1) {
+                g.fillStyle = night ? 'rgba(255,214,120,0.35)' : 'rgba(255,255,255,0.22)';
+                for (let wy = baseY - h + 8; wy < baseY - 10; wy += 12) {
+                    for (let wx = x + 5; wx < x + w - 7; wx += 11) {
+                        if (rnd() > 0.35) g.fillRect(wx, wy, 5, 6);
+                    }
+                }
+            }
+            x += w + 1 + rnd() * 5;
+        }
+    });
+}
+
+let sceneCache = { key: '', sky: null, front: null };
+function getScene() {
+    const key = currentTheme + '|' + canvas.width + 'x' + canvas.height;
+    if (sceneCache.key === key) return sceneCache;
+    const W = canvas.width, H = canvas.height, night = currentTheme === 'night';
+    const sky = makeLayer(W, H), sg = sky.getContext('2d');
+    const grad = sg.createLinearGradient(0, 0, 0, H - GROUND_H);
+    if (night) {
+        grad.addColorStop(0, THEMES.night.skyTop);
+        grad.addColorStop(1, THEMES.night.skyBottom);
+    } else {
+        grad.addColorStop(0, '#2f8fe8');
+        grad.addColorStop(0.55, '#63c2f8');
+        grad.addColorStop(1, '#b8e8ff');
+    }
+    sg.fillStyle = grad;
+    sg.fillRect(0, 0, W, H);
+    const front = makeLayer(W, H), fg = front.getContext('2d');
+    drawSkyline(fg, W, H - GROUND_H, night);
+    drawGroundStrip(fg, W, H - GROUND_H, H, night);
+    sceneCache = { key, sky, front };
+    return sceneCache;
+}
+
+let cloudSprite = null;
+function getCloudSprite() {
+    if (cloudSprite) return cloudSprite;
+    const c = makeLayer(130, 70), g = c.getContext('2d');
+    const puffs = [[30, 44, 20], [55, 32, 26], [86, 38, 24], [108, 48, 15], [62, 48, 20]];
+    g.fillStyle = '#b9d9f4';
+    puffs.forEach(([x, y, r]) => { g.beginPath(); g.arc(x, y + 5, r, 0, Math.PI * 2); g.fill(); });
+    g.fillStyle = '#ffffff';
+    puffs.forEach(([x, y, r]) => { g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill(); });
+    cloudSprite = c;
+    return c;
+}
+const CLOUDS = [
+    { x: 8,   y: 34,  s: 0.8, v: 0.12, top: true },
+    { x: 300, y: 28,  s: 0.9, v: 0.08, top: true },
+    { x: -6,  y: 172, s: 0.9, v: 0.15 },
+    { x: 330, y: 132, s: 0.7, v: 0.10 },
+    { x: 262, y: 232, s: 0.6, v: 0.18 }
+];
+
+let bgTick = 0;
 function drawBackground() {
+    bgTick++;
     const theme = THEMES[currentTheme];
-    const level = getCurrentLevel();
-    ctx.fillStyle = getBgGradient(theme, level);
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    const scene = getScene();
+    ctx.drawImage(scene.sky, 0, 0);
     if (theme.star) {
         stars.forEach(s => {
             s.twinkle += 0.05; s.x -= s.speed * 0.3;
@@ -542,24 +628,25 @@ function drawBackground() {
             ctx.fillStyle = theme.star;
             ctx.beginPath(); ctx.arc(s.x, s.y, s.size, 0, Math.PI * 2); ctx.fill();
         });
-        ctx.globalAlpha = 1;
     }
-    ctx.fillStyle = theme.cloud;
-    const cloudOffset = (frameCount * 0.3) % (canvas.width + 100);
-    drawCloud(canvas.width - cloudOffset + 50, 80, 40);
-    drawCloud(canvas.width - cloudOffset - 200, 150, 30);
-    ctx.fillStyle = theme.ground;
-    ctx.fillRect(0, canvas.height - 30, canvas.width, 30);
-    ctx.fillStyle = theme.groundDark;
-    for (let i = 0; i < canvas.width; i += 20) ctx.fillRect(i, canvas.height - 30, 10, 30);
+    const sprite = getCloudSprite();
+    ctx.globalAlpha = theme.star ? 0.2 : 1;
+    // උඩ clouds HUD එකට බාධා වෙන නිසා run එකේදී හංගනවා
+    const inRun = currentState === STATE.PLAYING || currentState === STATE.PAUSED || currentState === STATE.GAME_OVER;
+    CLOUDS.forEach(c => {
+        if (inRun && c.top) return;
+        const sw = 130 * c.s, sh = 70 * c.s;
+        const span = canvas.width + sw;
+        let px = (c.x + sw - bgTick * c.v) % span;
+        if (px < 0) px += span;
+        ctx.drawImage(sprite, px - sw, c.y, sw, sh);
+    });
+    ctx.globalAlpha = 1;
+    ctx.drawImage(scene.front, 0, 0);
 }
 function drawCloud(x, y, size) {
-    ctx.beginPath();
-    ctx.arc(x, y, size, 0, Math.PI * 2);
-    ctx.arc(x + size, y, size * 0.8, 0, Math.PI * 2);
-    ctx.arc(x - size, y, size * 0.7, 0, Math.PI * 2);
-    ctx.arc(x, y - size * 0.5, size * 0.7, 0, Math.PI * 2);
-    ctx.fill();
+    const s = size / 40;
+    ctx.drawImage(getCloudSprite(), x - 55 * s, y - 30 * s, 130 * s, 70 * s);
 }
 
 // ============ AIM ASSIST ============
@@ -822,6 +909,44 @@ function drawBird() {
     ctx.restore();
 }
 
+// ============ DRAW PIPES ============
+function drawPipes() {
+    const pipeWidth = 60;
+    const pipeCap = 18;
+    const levelGap = getCurrentLevel().gap + getDiff().gapBonus;
+
+    pipes.forEach(pipe => {
+        const topHeight = pipe.topHeight;
+        const bottomY = topHeight + levelGap;
+
+        ctx.save();
+
+        ctx.fillStyle = '#2ecc71';
+        ctx.strokeStyle = '#1b8f4d';
+        ctx.lineWidth = 2;
+
+        ctx.beginPath();
+        ctx.roundRect(pipe.x, 0, pipeWidth, topHeight, 10);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.roundRect(pipe.x, bottomY, pipeWidth, canvas.height - bottomY, 10);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = '#32d46f';
+        ctx.fillRect(pipe.x - 4, topHeight - pipeCap, pipeWidth + 8, pipeCap);
+        ctx.fillRect(pipe.x - 4, bottomY, pipeWidth + 8, pipeCap);
+
+        ctx.fillStyle = 'rgba(255,255,255,0.2)';
+        ctx.fillRect(pipe.x + 10, 0, 8, topHeight);
+        ctx.fillRect(pipe.x + 10, bottomY, 8, canvas.height - bottomY);
+
+        ctx.restore();
+    });
+}
+
 // ============ DRAW COINS ============
 function drawCoins() {
     coins.forEach(c => {
@@ -878,31 +1003,68 @@ function drawBoss() {
 }
 
 // ============ COLLISION ============
+// Bird ගේ ඇඳපු හැඩයටම (බඩ, හිස, හොට, වලිගය) ගැලපෙන circles වලින් collision බලනවා.
+// (කලින් පොඩි box එකක් නිසා හොට / වලිගය pipe එක ඇතුලට ගියත් game over වුණේ නෑ)
+const BIRD_PARTS = [
+    { x: -5, y: 0,  r: 15 },   // body (rear)
+    { x: 5,  y: 0,  r: 15 },   // body (front)
+    { x: 9,  y: -7, r: 10 },   // head
+    { x: -20, y: 1, r: 4 },    // tail
+    { x: 20, y: -1, r: 5 },    // beak base
+    { x: 25, y: 2,  r: 3 }     // beak tip
+];
+const HIT_FORGIVE = 1;          // px – ටිකක් සමාව (unfair ලෙස නොදැනෙන්න)
+const PIPE_W = 60, PIPE_CAP_H = 18, PIPE_CAP_OVER = 4;
+
+function getBirdCircles() {
+    const k = getAbilityModifiers().hitboxMultiplier;
+    const cos = Math.cos(bird.rotation), sin = Math.sin(bird.rotation);
+    return BIRD_PARTS.map(p => {
+        const px = p.x * k, py = p.y * k;
+        return {
+            x: bird.x + px * cos - py * sin,
+            y: bird.y + px * sin + py * cos,
+            r: Math.max(2, (p.r - HIT_FORGIVE) * k)
+        };
+    });
+}
+function circleHitsRect(c, rx, ry, rw, rh) {
+    const nx = Math.max(rx, Math.min(c.x, rx + rw));
+    const ny = Math.max(ry, Math.min(c.y, ry + rh));
+    const dx = c.x - nx, dy = c.y - ny;
+    return dx * dx + dy * dy < c.r * c.r;
+}
+
 function checkCollision() {
-    const mods = getAbilityModifiers();
+    if (currentMode === 'ZEN') return false;
     const gap = getCurrentLevel().gap + getDiff().gapBonus;
-    const hw = (bird.width / 2) * mods.hitboxMultiplier;
-    const hh = (bird.height / 2) * mods.hitboxMultiplier;
-    if (currentMode !== 'ZEN') {
-        if (bird.y + hh >= canvas.height - 30) return true;
-        if (bird.y - hh <= 0) return true;
+    const circles = getBirdCircles();
+    const groundY = canvas.height - GROUND_H;
+
+    for (const c of circles) {
+        if (c.y + c.r >= groundY) return true;
+        if (c.y - c.r <= 0) return true;
     }
-    for (let pipe of pipes) {
-        if (bird.x + hw > pipe.x && bird.x - hw < pipe.x + 60) {
-            if (bird.y - hh < pipe.topHeight || bird.y + hh > pipe.topHeight + gap) {
-                if (currentMode === 'ZEN') continue;
-                if (pipe.phase === undefined) pipe.phase = Math.random() < mods.phaseChance;
-                if (pipe.phase) continue;
-                if (activePowerups.shield) {
-                    activePowerups.shield = false;
-                    createParticles(bird.x, bird.y, 20, ['#3498db', '#fff']);
-                    addFloatingText(bird.x, bird.y - 40, 'SHIELD USED!', '#3498db');
-                    pipe.passed = true; pipe.x = -100;
-                    return false;
-                }
-                return true;
-            }
+    for (const pipe of pipes) {
+        if (pipe.x > bird.x + 60 || pipe.x + PIPE_W + PIPE_CAP_OVER < bird.x - 60) continue;
+        const bottomY = pipe.topHeight + gap;
+        const hit = circles.some(c =>
+            circleHitsRect(c, pipe.x, 0, PIPE_W, pipe.topHeight) ||
+            circleHitsRect(c, pipe.x - PIPE_CAP_OVER, pipe.topHeight - PIPE_CAP_H, PIPE_W + PIPE_CAP_OVER * 2, PIPE_CAP_H) ||
+            circleHitsRect(c, pipe.x, bottomY, PIPE_W, canvas.height - bottomY) ||
+            circleHitsRect(c, pipe.x - PIPE_CAP_OVER, bottomY, PIPE_W + PIPE_CAP_OVER * 2, PIPE_CAP_H));
+        if (!hit) continue;
+        // Phantom: pipe එකකට සැරයක් විතරයි chance roll කරන්නේ
+        if (pipe.phase === undefined) pipe.phase = Math.random() < getAbilityModifiers().phaseChance;
+        if (pipe.phase) continue;
+        if (activePowerups.shield) {
+            activePowerups.shield = false;
+            createParticles(bird.x, bird.y, 20, ['#3498db', '#fff']);
+            addFloatingText(bird.x, bird.y - 40, 'SHIELD USED!', '#3498db');
+            pipe.passed = true; pipe.x = -100;
+            return false;
         }
+        return true;
     }
     return false;
 }
@@ -1382,111 +1544,285 @@ function drawMiniBird(x, y, s, rot) {
     ctx.restore();
 }
 
-function drawPill(x, y, w, h, text, color) {
-    ctx.fillStyle = 'rgba(0,0,0,0.45)';
-    ctx.beginPath(); ctx.roundRect(x, y, w, h, h / 2); ctx.fill();
-    ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.stroke();
-    ctx.fillStyle = color; ctx.font = 'bold 13px Poppins, Arial';
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(text, x + w / 2, y + h / 2 + 1);
+// ============ MENU SCENERY (pipes + bushes + taller ground) ============
+const MENU_GROUND_Y = 541;
+
+function menuPipe(g, x, topY, capW, bodyW, groundY) {
+    const bx = x + (capW - bodyW) / 2;
+    const capH = 20;
+    const shade = (x0, x1) => {
+        const gr = g.createLinearGradient(x0, 0, x1, 0);
+        gr.addColorStop(0, '#a9f066');
+        gr.addColorStop(0.28, '#5fd23a');
+        gr.addColorStop(1, '#2a981e');
+        return gr;
+    };
+    g.lineWidth = 2;
+    g.strokeStyle = '#1b5a12';
+    g.fillStyle = shade(bx, bx + bodyW);
+    g.fillRect(bx, topY + capH - 2, bodyW, groundY - topY - capH + 8);
+    g.strokeRect(bx, topY + capH - 2, bodyW, groundY - topY - capH + 8);
+    g.fillStyle = shade(x, x + capW);
+    g.beginPath(); g.roundRect(x, topY, capW, capH, 5); g.fill(); g.stroke();
+    g.fillStyle = 'rgba(255,255,255,0.28)';
+    g.fillRect(x + 5, topY + 4, Math.max(3, capW * 0.14), capH - 8);
+}
+function menuBush(g, x, y, s) {
+    const puffs = [[0, 0, 11], [14, -6, 14], [30, -2, 12], [42, 3, 9]];
+    g.fillStyle = '#1e6a14';
+    puffs.forEach(([px, py, r]) => { g.beginPath(); g.arc(x + px * s, y + py * s, (r + 2) * s, 0, Math.PI * 2); g.fill(); });
+    g.fillStyle = '#4cc82e';
+    puffs.forEach(([px, py, r]) => { g.beginPath(); g.arc(x + px * s, y + py * s, r * s, 0, Math.PI * 2); g.fill(); });
+    g.fillStyle = 'rgba(190,255,140,0.35)';
+    puffs.forEach(([px, py, r]) => { g.beginPath(); g.arc(x + (px - 3) * s, y + (py - 4) * s, r * 0.45 * s, 0, Math.PI * 2); g.fill(); });
 }
 
-function drawMenuCard(d, hover) {
-    const y = d.y + (hover ? -2 : 0);
-    ctx.fillStyle = 'rgba(0,0,0,0.35)';
-    ctx.beginPath(); ctx.roundRect(d.x, d.y + 4, d.w, d.h, 14); ctx.fill();
-    ctx.fillStyle = hover ? shadeColor(d.color, 12) : shadeColor(d.color, -8);
-    ctx.beginPath(); ctx.roundRect(d.x, y, d.w, d.h, 14); ctx.fill();
-    ctx.fillStyle = 'rgba(255,255,255,0.18)';
-    ctx.beginPath(); ctx.roundRect(d.x + 3, y + 3, d.w - 6, d.h * 0.42, 11); ctx.fill();
-    ctx.strokeStyle = hover ? 'rgba(255,255,255,0.8)' : 'rgba(255,255,255,0.3)'; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.roundRect(d.x, y, d.w, d.h, 14); ctx.stroke();
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+let menuSceneCache = { key: '', canvas: null };
+function getMenuScene() {
+    const key = currentTheme + '|' + canvas.width + 'x' + canvas.height;
+    if (menuSceneCache.key === key) return menuSceneCache.canvas;
+    const W = canvas.width, H = canvas.height, night = currentTheme === 'night';
+    const c = makeLayer(W, H), g = c.getContext('2d');
+    drawGroundStrip(g, W, MENU_GROUND_Y, H, night);
+    menuPipe(g, 86, 496, 26, 20, MENU_GROUND_Y);
+    menuPipe(g, 300, 499, 26, 20, MENU_GROUND_Y);
+    menuPipe(g, -3, 443, 50, 40, MENU_GROUND_Y);
+    menuPipe(g, 354, 455, 50, 40, MENU_GROUND_Y);
+    menuBush(g, 4, 533, 1.0);
+    menuBush(g, 46, 537, 0.75);
+    menuBush(g, 350, 533, 0.85);
+    menuBush(g, 376, 537, 0.7);
+    if (night) {
+        g.globalCompositeOperation = 'source-atop';
+        g.fillStyle = 'rgba(8,10,50,0.5)';
+        g.fillRect(0, 0, W, H);
+        g.globalCompositeOperation = 'source-over';
+    }
+    menuSceneCache = { key, canvas: c };
+    return c;
+}
+
+// ============ TITLE (cached) ============
+function titleLine(g, text, cx, baseY, size, maxW, topCol, botCol) {
+    g.font = `800 ${size}px Poppins, Arial`;
+    const w = g.measureText(text).width;
+    if (w > maxW) { size = Math.floor(size * maxW / w); g.font = `800 ${size}px Poppins, Arial`; }
+    g.textAlign = 'center'; g.textBaseline = 'alphabetic';
+    g.lineJoin = 'round'; g.miterLimit = 2;
+    g.strokeStyle = '#10296b';
+    g.lineWidth = Math.max(8, size * 0.26);
+    for (let d = 4; d >= 1; d--) g.strokeText(text, cx, baseY + d);
+    g.strokeText(text, cx, baseY);
+    const gr = g.createLinearGradient(0, baseY - size * 0.72, 0, baseY);
+    gr.addColorStop(0, topCol); gr.addColorStop(1, botCol);
+    g.fillStyle = gr;
+    g.fillText(text, cx, baseY);
+    g.save();
+    g.beginPath(); g.rect(0, baseY - size * 0.75, g.canvas.width, size * 0.27); g.clip();
+    g.globalAlpha = 0.4; g.fillStyle = '#fff'; g.fillText(text, cx, baseY);
+    g.restore();
+}
+const TITLE_Y = 48;
+let titleCache = { key: '', canvas: null };
+function getTitle() {
+    let fontOk = true;
+    try { fontOk = !document.fonts || document.fonts.check('800 40px Poppins'); } catch (e) {}
+    const key = fontOk + '|' + canvas.width;
+    if (titleCache.key === key) return titleCache.canvas;
+    const c = makeLayer(canvas.width, 140), g = c.getContext('2d');
+    const cx = canvas.width / 2;
+    titleLine(g, 'FLAPPY', cx, 104 - TITLE_Y, 58, 218, '#fff27a', '#ffb300');
+    titleLine(g, 'ULTIMATE', cx, 152 - TITLE_Y, 50, 262, '#ffffff', '#cfdcff');
+    titleCache = { key, canvas: c };
+    return c;
+}
+
+function drawSparks(x, y, side, t) {
+    const pulse = 1 + Math.sin(t * 2) * 0.12;
+    ctx.save();
+    ctx.lineCap = 'round';
+    [-64, -28, 8].forEach(deg => {
+        const a = deg * Math.PI / 180;
+        const dx = Math.cos(a) * side, dy = Math.sin(a);
+        const r1 = 9 * pulse, r2 = 20 * pulse;
+        const seg = () => { ctx.beginPath(); ctx.moveTo(x + dx * r1, y + dy * r1); ctx.lineTo(x + dx * r2, y + dy * r2); };
+        ctx.strokeStyle = '#10296b'; ctx.lineWidth = 6; seg(); ctx.stroke();
+        ctx.strokeStyle = '#ffd400'; ctx.lineWidth = 3; seg(); ctx.stroke();
+    });
+    ctx.restore();
+}
+
+function drawCoinPill(cx, y, amount) {
+    const txt = String(amount);
+    ctx.font = '800 17px Poppins, Arial';
+    const tw = ctx.measureText(txt).width;
+    const h = 25, w = 26 + 8 + tw + 16, x = cx - w / 2;
+    ctx.fillStyle = 'rgba(12,34,84,0.88)';
+    ctx.beginPath(); ctx.roundRect(x, y, w, h, h / 2); ctx.fill();
+    ctx.strokeStyle = 'rgba(90,160,235,0.9)'; ctx.lineWidth = 1.5; ctx.stroke();
+    // coin
+    const ccx = x + 15, ccy = y + h / 2;
+    const cg = ctx.createRadialGradient(ccx - 3, ccy - 3, 1, ccx, ccy, 11);
+    cg.addColorStop(0, '#fff27a'); cg.addColorStop(1, '#ffb300');
+    ctx.fillStyle = cg; ctx.strokeStyle = '#a65a00'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(ccx, ccy, 10, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#fff6b0'; ctx.strokeStyle = '#d98400'; ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let i = 0; i < 10; i++) {
+        const r = i % 2 === 0 ? 5.5 : 2.4, a = -Math.PI / 2 + i * Math.PI / 5;
+        ctx.lineTo(ccx + Math.cos(a) * r, ccy + Math.sin(a) * r);
+    }
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    // amount
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
+    ctx.strokeStyle = '#0b1f4d'; ctx.lineWidth = 4; ctx.strokeText(txt, x + 31, y + h / 2 + 1);
+    ctx.fillStyle = '#ffd400'; ctx.fillText(txt, x + 31, y + h / 2 + 1);
+}
+
+// ============ CANDY BUTTONS ============
+function drawCandyButton(d, hover) {
+    const x = d.x, y = d.y + (hover ? -2 : 0), w = d.w, h = d.h;
+    const r = Math.min(16, h * 0.34);
+    const base = d.color;
+    const dark = shadeColor(base, -62);
+    ctx.fillStyle = 'rgba(0,0,0,0.28)';
+    ctx.beginPath(); ctx.roundRect(x, d.y + 3.5, w, h, r); ctx.fill();
+    ctx.fillStyle = dark;
+    ctx.beginPath(); ctx.roundRect(x - 2, y - 2, w + 4, h + 4, r + 2); ctx.fill();
+    const g = ctx.createLinearGradient(0, y, 0, y + h);
+    g.addColorStop(0, shadeColor(base, hover ? 42 : 30));
+    g.addColorStop(0.5, base);
+    g.addColorStop(1, shadeColor(base, -30));
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.roundRect(x, y, w, h, r); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.3)';
+    ctx.beginPath(); ctx.roundRect(x + 3, y + 2.5, w - 6, h * 0.4, Math.max(2, r - 3)); ctx.fill();
+
+    ctx.lineJoin = 'round';
+    ctx.textBaseline = 'middle';
+    const cy = y + h / 2 + 1;
     if (d.big) {
-        ctx.fillStyle = '#fff'; ctx.font = 'bold 26px Poppins, Arial';
-        ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = 4;
-        ctx.strokeText('▶  PLAY', d.x + d.w / 2, y + d.h / 2 + 1);
-        ctx.fillText('▶  PLAY', d.x + d.w / 2, y + d.h / 2 + 1);
+        ctx.font = '800 32px Poppins, Arial';
+        const tw = ctx.measureText('PLAY').width;
+        const triW = 22, gap = 12;
+        const sx = x + (w - (triW + gap + tw)) / 2;
+        ctx.beginPath();
+        ctx.moveTo(sx, cy - 13); ctx.lineTo(sx + triW, cy); ctx.lineTo(sx, cy + 13); ctx.closePath();
+        ctx.strokeStyle = dark; ctx.lineWidth = 6; ctx.stroke();
+        ctx.fillStyle = '#fff'; ctx.fill();
+        ctx.strokeStyle = '#fff'; ctx.lineWidth = 3; ctx.stroke();
+        ctx.textAlign = 'left';
+        ctx.strokeStyle = dark; ctx.lineWidth = 6; ctx.strokeText('PLAY', sx + triW + gap, cy);
+        ctx.fillStyle = '#fff'; ctx.fillText('PLAY', sx + triW + gap, cy);
     } else {
-        ctx.font = '21px Poppins, Arial'; ctx.fillStyle = '#fff';
-        ctx.fillText(d.icon, d.x + d.w / 2, y + d.h * 0.37);
-        ctx.font = 'bold 11px Poppins, Arial';
-        ctx.fillStyle = 'rgba(255,255,255,0.95)';
-        ctx.fillText(d.label, d.x + d.w / 2, y + d.h * 0.76);
+        const fs = d.fs || 12;
+        ctx.font = `800 ${fs}px Poppins, Arial`;
+        const lw = ctx.measureText(d.label).width;
+        const iconW = 20, gap = 4;
+        const sx = x + (w - (iconW + gap + lw)) / 2;
+        ctx.textAlign = 'center'; ctx.fillStyle = '#fff';
+        ctx.font = `${Math.round(h * 0.4)}px Poppins, Arial`;
+        ctx.fillText(d.icon, sx + iconW / 2, cy);
+        ctx.font = `800 ${fs}px Poppins, Arial`;
+        ctx.textAlign = 'left';
+        ctx.strokeStyle = dark; ctx.lineWidth = 3.5; ctx.strokeText(d.label, sx + iconW + gap, cy);
+        ctx.fillStyle = '#fff'; ctx.fillText(d.label, sx + iconW + gap, cy);
     }
     if (d.badge) {
-        ctx.fillStyle = '#ff3b3b';
-        ctx.beginPath(); ctx.arc(d.x + d.w - 8, y + 8, 9, 0, Math.PI * 2); ctx.fill();
-        ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
-        ctx.fillStyle = '#fff'; ctx.font = 'bold 12px Poppins, Arial';
-        ctx.fillText('!', d.x + d.w - 8, y + 9);
+        ctx.fillStyle = '#ff2e2e'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(x + w - 7, y + 7, 8, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = '#fff'; ctx.font = '800 11px Poppins, Arial'; ctx.textAlign = 'center';
+        ctx.fillText('!', x + w - 7, y + 8);
     }
+}
+
+function drawFooterHint(cx) {
+    const h = 21, y = canvas.height - 29;
+    const txt = 'Space / Click to flap';
+    ctx.font = '700 11.5px Poppins, Arial';
+    const tw = ctx.measureText(txt).width;
+    const w = tw + 28, x = cx - w / 2;
+    ctx.lineWidth = 2; ctx.strokeStyle = '#3a1d0b'; ctx.fillStyle = '#7a4a24';
+    [x - 52, x + w + 4].forEach(bx => {
+        ctx.beginPath(); ctx.roundRect(bx, y + h / 2 - 4, 48, 8, 4); ctx.fill(); ctx.stroke();
+    });
+    ctx.fillStyle = 'rgba(66,32,12,0.92)'; ctx.strokeStyle = '#2e1507';
+    ctx.beginPath(); ctx.roundRect(x, y, w, h, h / 2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(txt, cx, y + h / 2 + 1);
 }
 
 function drawMenu() {
+    ctx.save();
     const cx = canvas.width / 2;
     const t = frameCount * 0.05;
 
-    const ov = ctx.createLinearGradient(0, 0, 0, canvas.height);
-    ov.addColorStop(0, 'rgba(10,10,40,0.55)');
-    ov.addColorStop(1, 'rgba(10,10,40,0.8)');
-    ctx.fillStyle = ov; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    // taller ground + pipes + bushes
+    ctx.drawImage(getMenuScene(), 0, 0);
 
-    const bob = Math.sin(t) * 6;
-    drawMiniBird(cx, 52 + bob, 1.25, Math.sin(t) * 0.12);
+    // flying bird + speed lines
+    const bob = Math.sin(t) * 5;
+    ctx.save();
+    ctx.lineCap = 'round'; ctx.strokeStyle = 'rgba(255,255,255,0.75)';
+    [[100, 30, 140, 33, 2.5], [88, 40, 136, 41, 2], [110, 50, 144, 48, 2.5]].forEach(([x1, y1, x2, y2, lw]) => {
+        ctx.lineWidth = lw; ctx.beginPath(); ctx.moveTo(x1, y1 + bob); ctx.lineTo(x2, y2 + bob); ctx.stroke();
+    });
+    ctx.restore();
+    drawMiniBird(176, 36 + bob, 1.5, Math.sin(t) * 0.1);
 
-    ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
-    ctx.lineJoin = 'round';
-    ctx.font = 'bold 46px Poppins, Arial';
-    ctx.lineWidth = 8; ctx.strokeStyle = 'rgba(0,0,0,0.55)';
-    ctx.strokeText('FLAPPY', cx, 120 + bob * 0.4);
-    ctx.fillStyle = '#ffd700'; ctx.fillText('FLAPPY', cx, 120 + bob * 0.4);
-    ctx.font = 'bold 40px Poppins, Arial';
-    ctx.strokeText('ULTIMATE', cx, 162 + bob * 0.4);
-    ctx.fillStyle = '#ff6b6b'; ctx.fillText('ULTIMATE', cx, 162 + bob * 0.4);
+    // title
+    ctx.drawImage(getTitle(), 0, TITLE_Y);
+    drawSparks(66, 92, -1, t);
+    drawSparks(334, 94, 1, t);
 
-    drawPill(cx - 118, 176, 110, 26, '🪙 ' + saveData.coins, '#ffd700');
-    drawPill(cx + 8, 176, 110, 26, '🏆 ' + saveData.bestScore, '#ffb142');
-
+    // coins + difficulty
+    drawCoinPill(cx, 163, saveData.coins);
     const diff = getDiff();
-    ctx.fillStyle = diff.color; ctx.font = 'bold 12px Poppins, Arial'; ctx.textBaseline = 'middle';
-    ctx.fillText(`${diff.icon} ${diff.name}  •  ${GAME_MODES[currentMode].icon} ${GAME_MODES[currentMode].name}`, cx, 220);
+    const label = `${diff.name} • ${GAME_MODES[currentMode].name}`;
+    ctx.font = '800 14px Poppins, Arial';
+    const lw = ctx.measureText(label).width;
+    const sx = cx - (20 + lw) / 2;
+    ctx.textBaseline = 'middle'; ctx.textAlign = 'left'; ctx.lineJoin = 'round';
+    ctx.font = '14px Poppins, Arial'; ctx.fillStyle = '#fff';
+    ctx.fillText(diff.icon, sx, 201);
+    ctx.font = '800 14px Poppins, Arial';
+    ctx.strokeStyle = '#0b2a52'; ctx.lineWidth = 4; ctx.strokeText(label, sx + 21, 201);
+    ctx.fillStyle = diff.color; ctx.fillText(label, sx + 21, 201);
 
+    // buttons
     const canClaim = saveData.lastDailyClaim !== new Date().toDateString();
-    const cw = 110, ch = 54, gap = 10;
-    const gx = (canvas.width - (cw * 3 + gap * 2)) / 2;
-    const gy = 300;
+    const cw = 89, ch = 41, gapX = 6, gapY = 7;
+    const gx = (canvas.width - (4 * cw + 3 * gapX)) / 2, gy = 283;
     const items = [
-        { icon: '🎯', label: 'MODE', color: '#e74c3c', action: 'modes' },
-        { icon: '⚡', label: 'DIFFICULTY', color: diff.color, action: 'difficulty' },
-        { icon: '🎨', label: 'SKINS', color: '#9b59b6', action: 'skins' },
-        { icon: '🛒', label: 'SHOP', color: '#f39c12', action: 'shop' },
-        { icon: '🌈', label: 'TRAILS', color: '#00bcd4', action: 'trails' },
-        { icon: '🏅', label: 'ACHIEVE', color: '#e1b12c', action: 'achievements' },
-        { icon: '📋', label: 'MISSIONS', color: '#3498db', action: 'missions' },
-        { icon: '🎁', label: 'DAILY', color: '#e91e63', action: 'daily', badge: canClaim },
-        { icon: '🎪', label: 'EVENT', color: '#ff9800', action: 'event' },
-        { icon: '🏆', label: 'RANKS', color: '#667eea', action: 'leaderboard' },
-        { icon: '📖', label: 'HOW TO', color: '#4caf50', action: 'tutorial' },
-        { icon: '⚙️', label: 'SETTINGS', color: '#78909c', action: 'settings' }
-    ].map((it, i) => ({
-        ...it, x: gx + (i % 3) * (cw + gap), y: gy + Math.floor(i / 3) * (ch + 8), w: cw, h: ch
-    }));
+        { icon: '🎯', label: 'MODE',   color: '#e8453c', action: 'modes' },
+        { icon: '⚡', label: 'DIFF',   color: diff.color, action: 'difficulty' },
+        { icon: '🎨', label: 'SKINS',  color: '#a63fd8', action: 'skins' },
+        { icon: '🛒', label: 'SHOP',   color: '#f58a1f', action: 'shop' },
+        { icon: '🏅', label: 'ACH',    color: '#f2b705', action: 'achievements' },
+        { icon: '📋', label: 'MISS',   color: '#2f7be8', action: 'missions' },
+        { icon: '🎁', label: 'DAILY',  color: '#e0307a', action: 'daily', badge: canClaim },
+        { icon: '⚙️', label: 'SET',    color: '#7f8da3', action: 'settings' },
+        { icon: '🌈', label: 'TRAILS', color: '#1fb8c9', action: 'trails' },
+        { icon: '🎪', label: 'EVENT',  color: '#f5871f', action: 'event' },
+        { icon: '📊', label: 'STATS',  color: '#425a7c', action: 'stats' },
+        { icon: '📖', label: 'HOW',    color: '#38b52a', action: 'tutorial' }
+    ].map((it, i) => ({ ...it, x: gx + (i % 4) * (cw + gapX), y: gy + Math.floor(i / 4) * (ch + gapY), w: cw, h: ch }));
+    const board = { icon: '🏆', label: 'LEADERBOARD', color: '#4a5ae8', action: 'leaderboard', fs: 14, x: cx - 94, y: 428, w: 188, h: 44 };
 
-    const pulse = 1 + Math.sin(t * 2) * 0.025;
-    const pw = 250 * pulse, ph = 54 * pulse;
-    const play = { x: cx - pw / 2, y: 236 - (ph - 54) / 2, w: pw, h: ph, color: '#2ecc71', big: true };
-    const playHit = { x: cx - 125, y: 236, w: 250, h: 54, action: 'play' };
+    const pulse = 1 + Math.sin(t * 2) * 0.02;
+    const pw = 210 * pulse, ph = 54 * pulse;
+    const play = { x: cx - pw / 2, y: 219 - (ph - 54) / 2, w: pw, h: ph, color: '#3dcc2b', big: true };
+    const playHit = { x: cx - 105, y: 219, w: 210, h: 54, action: 'play' };
 
     const over = (b) => mouse.x >= b.x && mouse.x <= b.x + b.w && mouse.y >= b.y && mouse.y <= b.y + b.h;
-    drawMenuCard(play, over(playHit));
-    items.forEach(it => drawMenuCard(it, over(it)));
+    drawCandyButton(play, over(playHit));
+    items.forEach(it => drawCandyButton(it, over(it)));
+    drawCandyButton(board, over(board));
 
-    window.menuButtons = [playHit, ...items.map(it => ({ x: it.x, y: it.y, w: it.w, h: it.h, action: it.action }))];
+    window.menuButtons = [playHit, board, ...items].map(b => ({ x: b.x, y: b.y, w: b.w, h: b.h, action: b.action }));
 
-    ctx.fillStyle = 'rgba(255,255,255,0.7)'; ctx.font = '11px Poppins, Arial';
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText('Space / Click to flap  •  P to pause', cx, canvas.height - 15);
+    drawFooterHint(cx);
+    ctx.restore();
 }
 
 // ============ MODES ============
